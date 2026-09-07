@@ -1,88 +1,55 @@
+import pandas as pd
 import os
-from dotenv import load_dotenv
-from openai import OpenAI
 
 
-# Load environment variables
-load_dotenv()
+def analyze_sales_data(file_path):
 
-api_key = os.getenv("OPENAI_API_KEY")
+    extension = os.path.splitext(file_path)[1].lower()
 
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set in the .env file")
+    # Read CSV or Excel
+    if extension == ".csv":
+        df = pd.read_csv(file_path)
 
-client = OpenAI(api_key=api_key)
+    elif extension in [".xlsx", ".xls"]:
+        df = pd.read_excel(file_path)
 
+    else:
+        raise ValueError("Unsupported file format.")
 
-def generate_business_insights(analysis):
+    # Calculate revenue
+    df["Revenue"] = df["Quantity"] * df["Price"]
 
-    prompt = f"""
-You are an expert business analyst.
+    total_revenue = df["Revenue"].sum()
+    total_orders = len(df)
+    total_items = df["Quantity"].sum()
 
-Analyze the following business data:
-
-{analysis}
-
-Return the analysis in EXACTLY this format:
-
-KEY INSIGHT:
-Write 1-2 sentences about the most important thing found in the data.
-
-BIGGEST OPPORTUNITY:
-Write 1-2 sentences describing the biggest business opportunity.
-
-POTENTIAL PROBLEM:
-Write 1-2 sentences describing a possible problem or risk in the data.
-
-RECOMMENDED ACTION:
-Write 1-2 specific actions the business owner should take.
-
-Rules:
-- Use simple language.
-- Base everything only on the provided data.
-- Do not invent facts.
-- Include numbers from the data when useful.
-- Be practical and concise.
-"""
-
-    response = client.responses.create(
-        model="gpt-5.6-luna",
-        input=prompt
+    average_order_value = (
+        total_revenue / total_orders
+        if total_orders > 0
+        else 0
     )
 
-    text = response.output_text
+    product_revenue = (
+        df.groupby("Product")["Revenue"]
+        .sum()
+        .sort_values(ascending=False)
+    )
 
-    # Convert the AI response into structured sections
-    sections = {
-        "key_insight": "",
-        "biggest_opportunity": "",
-        "potential_problem": "",
-        "recommended_action": ""
+    best_product = product_revenue.index[0]
+    best_product_revenue = product_revenue.iloc[0]
+
+    worst_product = product_revenue.index[-1]
+    worst_product_revenue = product_revenue.iloc[-1]
+
+    return {
+        "total_revenue": round(float(total_revenue), 2),
+        "total_orders": int(total_orders),
+        "total_items_sold": int(total_items),
+        "average_order_value": round(float(average_order_value), 2),
+        "best_product": best_product,
+        "best_product_revenue": round(float(best_product_revenue), 2),
+        "worst_product": worst_product,
+        "worst_product_revenue": round(float(worst_product_revenue), 2),
+        "products": product_revenue.round(2).to_dict()
     }
-
-    current_section = None
-
-    for line in text.splitlines():
-
-        line = line.strip()
-
-        if line.upper().startswith("KEY INSIGHT:"):
-            current_section = "key_insight"
-            sections[current_section] = line.split(":", 1)[1].strip()
-
-        elif line.upper().startswith("BIGGEST OPPORTUNITY:"):
-            current_section = "biggest_opportunity"
-            sections[current_section] = line.split(":", 1)[1].strip()
-
-        elif line.upper().startswith("POTENTIAL PROBLEM:"):
-            current_section = "potential_problem"
-            sections[current_section] = line.split(":", 1)[1].strip()
-
-        elif line.upper().startswith("RECOMMENDED ACTION:"):
-            current_section = "recommended_action"
-            sections[current_section] = line.split(":", 1)[1].strip()
-
-        elif current_section and line:
-            sections[current_section] += " " + line
-
-    return sections
+    
